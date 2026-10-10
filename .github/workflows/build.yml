@@ -13,11 +13,11 @@ jobs:
     runs-on: ubuntu-24.04-arm
 
     steps:
-      # 0. Checkout репозитория (нужен для tools/*.py)
+      # Checkout репозитория (нужен для tools/*.py)
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1. Установка пакетов, необходимых для работы с Android-образами
+      # Установка пакетов, необходимых для работы с Android-образами
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -36,7 +36,7 @@ jobs:
           sudo mv avbtool.py /usr/local/bin/avbtool
           sudo chmod +x /usr/local/bin/avbtool
 
-      # 2. Получение ссылки на последний nightly-образ Droidian
+      # Получение ссылки на последний nightly-образ Droidian
       - name: Get latest Droidian nightly rootfs URL
         id: droidian
         run: |
@@ -50,35 +50,30 @@ jobs:
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "Скачиваем: $URL"
 
-      # 2a. Скачивание образа
+      # Скачивание образа
       - name: Download Droidian rootfs
         run: |
           wget -q "${{ steps.droidian.outputs.url }}" -O droidian-rootfs.zip
 
-      # 3. Распаковка образа во временную папку
+      # Распаковка образа во временную папку
       - name: Extract Droidian rootfs
         run: |
           mkdir -p droidian-extracted
           unzip -q droidian-rootfs.zip -d droidian-extracted
           ls -lh droidian-extracted/data/
+          mv droidian-extracted/data/rootfs.img rootfs.img
 
-      # 4. Преобразование sparse-образа rootfs в raw
-      - name: Convert sparse rootfs to raw
-        run: |
-          simg2img droidian-extracted/data/rootfs.img rootfs-raw.img
-          ls -lh rootfs-raw.img
-
-      # 5. Монтирование raw-образа
+      # Монтирование raw-образа
       - name: Mount rootfs
         run: |
           sudo mkdir -p /mnt/rootfs
-          sudo mount -o loop rootfs-raw.img /mnt/rootfs
+          sudo mount -o loop rootfs.img /mnt/rootfs
           sudo mount -t proc /proc /mnt/rootfs/proc
           sudo mount -t sysfs /sys /mnt/rootfs/sys
           sudo mount --bind /dev /mnt/rootfs/dev
           sudo mount --bind /dev/pts /mnt/rootfs/dev/pts
 
-      # 6. Добавление sources.list.d/droidian-port.list
+      # Добавление sources.list.d/droidian-port.list
       - name: Add Droidian port APT source
         run: |
           sudo tee /mnt/rootfs/etc/apt/sources.list.d/droidian-port.list > /dev/null <<'EOF'
@@ -86,7 +81,7 @@ jobs:
           deb [trusted=yes] https://xstanislav.github.io/adaptation-samsung-gts7l/ ./
           EOF
 
-      # 7. Установка adaptation-пакетов внутри rootfs
+      # Установка adaptation-пакетов внутри rootfs
       - name: Install adaptation packages inside rootfs
         run: |
           sudo chroot /mnt/rootfs /bin/bash -c "
@@ -99,7 +94,7 @@ jobs:
             rm -rf /var/lib/apt/lists/*
           "
 
-      # 8. Размонтирование rootfs
+      # Размонтирование rootfs
       - name: Unmount rootfs
         if: always()
         run: |
@@ -109,7 +104,7 @@ jobs:
           sudo umount /mnt/rootfs/proc    || true
           sudo umount /mnt/rootfs         || true
 
-      # 9. Получение ссылки на последний linux-bootimage .deb
+      # Получение ссылки на последний linux-bootimage .deb
       - name: Get latest kernel bootimage URL
         id: kernel
         run: |
@@ -127,7 +122,7 @@ jobs:
         run: |
           wget -q "${{ steps.kernel.outputs.url }}" -O linux-bootimage.deb
 
-      # 10. Распаковка .deb
+      # Распаковка .deb
       - name: Extract kernel deb
         run: |
           mkdir -p kernel-extracted
@@ -136,7 +131,7 @@ jobs:
           tar xf data.tar.*
           ls -lh boot/
 
-      # 11. Сборка boot-tab.img и dtbo-tab.img
+      # Сборка boot-tab.img и dtbo-tab.img
       - name: Build boot-tab.img and dtbo-tab.img
         run: |
           BOOT_SRC=$(ls kernel-extracted/boot/boot.img-*)
@@ -145,18 +140,18 @@ jobs:
           python3 tools/make-touchpad-dtbo.py "$DTBO_SRC" dtbo-tab.img
           ls -lh boot-tab.img dtbo-tab.img
 
-      # 12a. Загрузка артефактов
+      # Загрузка артефактов
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: droidian-gts7l-images
           path: |
-            rootfs-raw.img
+            rootfs.img
             boot-tab.img
             dtbo-tab.img
           retention-days: 30
 
-      # 12b. Создание GitHub Release
+      # Создание GitHub Release
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -164,11 +159,11 @@ jobs:
           name: "Droidian gts7l nightly #${{ github.run_number }}"
           body: |
             Автоматическая сборка Droidian для Samsung Galaxy Tab S7 LTE (gts7l).
-            - rootfs: собран из последнего nightly-образа Droidian с добавленными adaptation-пакетами
+            - rootfs.img: собран из последнего nightly-образа Droidian с добавленными adaptation-пакетами
             - boot-tab.img: Samsung-совместимый boot-образ
             - dtbo-tab.img: dtbo с исправленной ориентацией тачпада Book Cover
           files: |
-            rootfs-raw.img
+            rootfs.img
             boot-tab.img
             dtbo-tab.img
           draft: false
