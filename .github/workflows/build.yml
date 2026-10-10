@@ -7,6 +7,9 @@ on:
       - 'tools/**'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     # Нативный arm64-раннер GitHub Actions
@@ -96,6 +99,7 @@ jobs:
             --tmpfs /run \
             --dir /run/systemd/resolve \
             --ro-bind /etc/resolv.conf /run/systemd/resolve/stub-resolv.conf \
+            --tmpfs /etc/kernel/bootimage_postinst.d \
             /bin/bash -c "
               set -e
               export DEBIAN_FRONTEND=noninteractive
@@ -103,6 +107,7 @@ jobs:
               apt-get install -y --no-install-recommends \
                 -o APT::Keep-Downloaded-Packages=false \
                 -o Dpkg::Options::='--force-overwrite' \
+                -o Dpkg::Options::='--force-overwrite-dir' \
                 adaptation-samsung-gts7l \
                 adaptation-samsung-gts7l-configs
               apt-get purge -y adaptation-android-generic || true
