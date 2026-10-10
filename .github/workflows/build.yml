@@ -102,6 +102,7 @@ jobs:
               apt-get update
               apt-get install -y --no-install-recommends \
                 -o APT::Keep-Downloaded-Packages=false \
+                -o Dpkg::Options::='--force-overwrite' \
                 adaptation-samsung-gts7l \
                 adaptation-samsung-gts7l-configs
               apt-get purge -y adaptation-android-generic || true
