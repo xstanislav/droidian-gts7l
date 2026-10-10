@@ -74,13 +74,13 @@ jobs:
       - name: Mount rootfs
         run: |
           sudo mkdir -p /mnt/rootfs
+          ls -lh rootfs.img
+          file rootfs.img
           sudo mount -o loop rootfs.img /mnt/rootfs
-          sudo mount -t proc /proc /mnt/rootfs/proc
-          sudo mount -t sysfs /sys /mnt/rootfs/sys
-          sudo mount --bind /dev /mnt/rootfs/dev
-          sudo mount --bind /dev/pts /mnt/rootfs/dev/pts
-          sudo touch /mnt/rootfs/etc/resolv.conf
-          sudo mount --bind /etc/resolv.conf /mnt/rootfs/etc/resolv.conf
+          echo "--- после mount ---"
+          mount | grep /mnt/rootfs || echo "НЕ СМОНТИРОВАНО"
+          sudo ls -la /mnt/rootfs/
+          sudo ls -la /mnt/rootfs/etc/ 2>&1 | head
 
       # Добавление sources.list.d/droidian-port.list
       - name: Add Droidian port APT source
