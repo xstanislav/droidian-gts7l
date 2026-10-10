@@ -63,6 +63,13 @@ jobs:
           ls -lh droidian-extracted/data/
           mv droidian-extracted/data/rootfs.img rootfs.img
 
+      # Расширение rootfs
+      - name: Resize rootfs image
+        run: |
+          truncate -s +2G rootfs.img
+          sudo e2fsck -f -y rootfs.img
+          sudo resize2fs rootfs.img
+
       # Монтирование raw-образа
       - name: Mount rootfs
         run: |
@@ -72,6 +79,8 @@ jobs:
           sudo mount -t sysfs /sys /mnt/rootfs/sys
           sudo mount --bind /dev /mnt/rootfs/dev
           sudo mount --bind /dev/pts /mnt/rootfs/dev/pts
+          sudo touch /mnt/rootfs/etc/resolv.conf
+          sudo mount --bind /etc/resolv.conf /mnt/rootfs/etc/resolv.conf
 
       # Добавление sources.list.d/droidian-port.list
       - name: Add Droidian port APT source
@@ -98,11 +107,19 @@ jobs:
       - name: Unmount rootfs
         if: always()
         run: |
-          sudo umount /mnt/rootfs/dev/pts || true
-          sudo umount /mnt/rootfs/dev     || true
-          sudo umount /mnt/rootfs/sys     || true
-          sudo umount /mnt/rootfs/proc    || true
-          sudo umount /mnt/rootfs         || true
+          sudo umount /mnt/rootfs/dev/pts
+          sudo umount /mnt/rootfs/dev
+          sudo umount /mnt/rootfs/sys
+          sudo umount /mnt/rootfs/proc
+          sudo umount /mnt/rootfs
+          sudo umount /mnt/rootfs/etc/resolv.conf
+
+      # Сжатие rootfs.img в zip
+      - name: Compress rootfs.img to zip
+        run: |
+          zip -1 rootfs.img.zip rootfs.img
+          ls -lh rootfs.img.zip
+          df -h
 
       # Получение ссылки на последний linux-bootimage .deb
       - name: Get latest kernel bootimage URL
@@ -146,7 +163,7 @@ jobs:
         with:
           name: droidian-gts7l-images
           path: |
-            rootfs.img
+            rootfs.img.zip
             boot-tab.img
             dtbo-tab.img
           retention-days: 30
@@ -159,11 +176,11 @@ jobs:
           name: "Droidian gts7l nightly #${{ github.run_number }}"
           body: |
             Автоматическая сборка Droidian для Samsung Galaxy Tab S7 LTE (gts7l).
-            - rootfs.img: собран из последнего nightly-образа Droidian с добавленными adaptation-пакетами
+            - rootfs.img.zip: собран из последнего nightly-образа Droidian с добавленными adaptation-пакетами
             - boot-tab.img: Samsung-совместимый boot-образ
             - dtbo-tab.img: dtbo с исправленной ориентацией тачпада Book Cover
           files: |
-            rootfs.img
+            rootfs.img.zip
             boot-tab.img
             dtbo-tab.img
           draft: false
