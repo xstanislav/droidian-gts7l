@@ -28,7 +28,8 @@ jobs:
             wget \
             curl \
             jq \
-            tar
+            tar \
+            bubblewrap
 
       - name: Install avbtool from AOSP
         run: |
@@ -74,13 +75,7 @@ jobs:
       - name: Mount rootfs
         run: |
           sudo mkdir -p /mnt/rootfs
-          ls -lh rootfs.img
-          file rootfs.img
           sudo mount -o loop rootfs.img /mnt/rootfs
-          echo "--- после mount ---"
-          mount | grep /mnt/rootfs || echo "НЕ СМОНТИРОВАНО"
-          sudo ls -la /mnt/rootfs/
-          sudo ls -la /mnt/rootfs/etc/ 2>&1 | head
 
       # Добавление sources.list.d/droidian-port.list
       - name: Add Droidian port APT source
@@ -90,29 +85,36 @@ jobs:
           deb [trusted=yes] https://xstanislav.github.io/adaptation-samsung-gts7l/ ./
           EOF
 
-      # Установка adaptation-пакетов внутри rootfs
-      - name: Install adaptation packages inside rootfs
+      # Установка пакетов через bubblewrap
+      - name: Install adaptation packages inside rootfs (bubblewrap)
         run: |
-          sudo chroot /mnt/rootfs /bin/bash -c "
-            set -e
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-              adaptation-samsung-gts7l \
-              adaptation-samsung-gts7l-configs
-            apt-get clean
-            rm -rf /var/lib/apt/lists/*
-          "
+          sudo bwrap \
+            --bind /mnt/rootfs / \
+            --dev /dev \
+            --proc /proc \
+            --bind /sys /sys \
+            --tmpfs /run \
+            --dir /run/systemd/resolve \
+            --ro-bind /etc/resolv.conf /run/systemd/resolve/stub-resolv.conf \
+            /bin/bash -c "
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                -o APT::Keep-Downloaded-Packages=false \
+                adaptation-samsung-gts7l \
+                adaptation-samsung-gts7l-configs
+              apt-get purge -y adaptation-android-generic || true
+              apt-get clean
+              rm -rf /var/lib/apt/lists/*
+            "
+          df -h
 
       # Размонтирование rootfs
       - name: Unmount rootfs
         if: always()
         run: |
-          sudo umount /mnt/rootfs/dev/pts
-          sudo umount /mnt/rootfs/dev
-          sudo umount /mnt/rootfs/sys
-          sudo umount /mnt/rootfs/proc
-          sudo umount /mnt/rootfs
-          sudo umount /mnt/rootfs/etc/resolv.conf
+          sudo umount /mnt/rootfs || true
 
       # Сжатие rootfs.img в zip
       - name: Compress rootfs.img to zip
