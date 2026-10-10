@@ -23,14 +23,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             android-sdk-libsparse-utils \
-            avbtool \
             python3 \
             unzip \
             wget \
             curl \
             jq \
-            ar \
             tar
+
+      - name: Install avbtool from AOSP
+        run: |
+          wget -q https://android.googlesource.com/platform/external/avb/+archive/refs/heads/main.tar.gz -O - | tar xzf - avbtool.py
+          sudo mv avbtool.py /usr/local/bin/avbtool
+          sudo chmod +x /usr/local/bin/avbtool
 
       # 2. Получение ссылки на последний nightly-образ Droidian
       - name: Get latest Droidian nightly rootfs URL
