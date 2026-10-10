@@ -1,0 +1,173 @@
+name: Build Droidian for gts7l
+
+on:
+  push:
+    paths:
+      - '.github/workflows/build.yml'
+      - 'tools/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Нативный arm64-раннер GitHub Actions
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      # 0. Checkout репозитория (нужен для tools/*.py)
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1. Установка пакетов, необходимых для работы с Android-образами
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            android-sdk-libsparse-utils \
+            avbtool \
+            python3 \
+            unzip \
+            wget \
+            curl \
+            jq \
+            ar \
+            tar
+
+      # 2. Получение ссылки на последний nightly-образ Droidian
+      - name: Get latest Droidian nightly rootfs URL
+        id: droidian
+        run: |
+          URL=$(curl -sL "https://api.github.com/repos/droidian-images/droidian/releases" \
+            | jq -r '.[] | select(.tag_name == "nightly") | .assets[] | select(.name | contains("droidian-OFFICIAL-phosh-phone-rootfs-api30-arm64-next")) | .browser_download_url' \
+            | head -n1)
+          if [ -z "$URL" ]; then
+            echo "::error::Не удалось найти nightly-образ Droidian"
+            exit 1
+          fi
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Скачиваем: $URL"
+
+      # 2a. Скачивание образа
+      - name: Download Droidian rootfs
+        run: |
+          wget -q "${{ steps.droidian.outputs.url }}" -O droidian-rootfs.zip
+
+      # 3. Распаковка образа во временную папку
+      - name: Extract Droidian rootfs
+        run: |
+          mkdir -p droidian-extracted
+          unzip -q droidian-rootfs.zip -d droidian-extracted
+          ls -lh droidian-extracted/data/
+
+      # 4. Преобразование sparse-образа rootfs в raw
+      - name: Convert sparse rootfs to raw
+        run: |
+          simg2img droidian-extracted/data/rootfs.img rootfs-raw.img
+          ls -lh rootfs-raw.img
+
+      # 5. Монтирование raw-образа
+      - name: Mount rootfs
+        run: |
+          sudo mkdir -p /mnt/rootfs
+          sudo mount -o loop rootfs-raw.img /mnt/rootfs
+          sudo mount -t proc /proc /mnt/rootfs/proc
+          sudo mount -t sysfs /sys /mnt/rootfs/sys
+          sudo mount --bind /dev /mnt/rootfs/dev
+          sudo mount --bind /dev/pts /mnt/rootfs/dev/pts
+
+      # 6. Добавление sources.list.d/droidian-port.list
+      - name: Add Droidian port APT source
+        run: |
+          sudo tee /mnt/rootfs/etc/apt/sources.list.d/droidian-port.list > /dev/null <<'EOF'
+          deb [trusted=yes] https://xstanislav.github.io/kernel_samsung_sm8250_gts7l/ ./
+          deb [trusted=yes] https://xstanislav.github.io/adaptation-samsung-gts7l/ ./
+          EOF
+
+      # 7. Установка adaptation-пакетов внутри rootfs
+      - name: Install adaptation packages inside rootfs
+        run: |
+          sudo chroot /mnt/rootfs /bin/bash -c "
+            set -e
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              adaptation-samsung-gts7l \
+              adaptation-samsung-gts7l-configs
+            apt-get clean
+            rm -rf /var/lib/apt/lists/*
+          "
+
+      # 8. Размонтирование rootfs
+      - name: Unmount rootfs
+        if: always()
+        run: |
+          sudo umount /mnt/rootfs/dev/pts || true
+          sudo umount /mnt/rootfs/dev     || true
+          sudo umount /mnt/rootfs/sys     || true
+          sudo umount /mnt/rootfs/proc    || true
+          sudo umount /mnt/rootfs         || true
+
+      # 9. Получение ссылки на последний linux-bootimage .deb
+      - name: Get latest kernel bootimage URL
+        id: kernel
+        run: |
+          URL=$(curl -sL "https://api.github.com/repos/xstanislav/kernel_samsung_sm8250_gts7l/releases" \
+            | jq -r '.[] | .assets[] | select(.name | contains("linux-bootimage-4.19-325-samsung-gts7l")) | .browser_download_url' \
+            | head -n1)
+          if [ -z "$URL" ]; then
+            echo "::error::Не удалось найти linux-bootimage deb"
+            exit 1
+          fi
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Скачиваем: $URL"
+
+      - name: Download kernel bootimage deb
+        run: |
+          wget -q "${{ steps.kernel.outputs.url }}" -O linux-bootimage.deb
+
+      # 10. Распаковка .deb
+      - name: Extract kernel deb
+        run: |
+          mkdir -p kernel-extracted
+          cd kernel-extracted
+          ar x ../linux-bootimage.deb
+          tar xf data.tar.*
+          ls -lh boot/
+
+      # 11. Сборка boot-tab.img и dtbo-tab.img
+      - name: Build boot-tab.img and dtbo-tab.img
+        run: |
+          BOOT_SRC=$(ls kernel-extracted/boot/boot.img-*)
+          DTBO_SRC=$(ls kernel-extracted/boot/dtbo.img-*)
+          python3 tools/build-bootimg.py "$BOOT_SRC" boot-tab.img
+          python3 tools/make-touchpad-dtbo.py "$DTBO_SRC" dtbo-tab.img
+          ls -lh boot-tab.img dtbo-tab.img
+
+      # 12a. Загрузка артефактов
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: droidian-gts7l-images
+          path: |
+            rootfs-raw.img
+            boot-tab.img
+            dtbo-tab.img
+          retention-days: 30
+
+      # 12b. Создание GitHub Release
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly-${{ github.run_number }}
+          name: "Droidian gts7l nightly #${{ github.run_number }}"
+          body: |
+            Автоматическая сборка Droidian для Samsung Galaxy Tab S7 LTE (gts7l).
+            - rootfs: собран из последнего nightly-образа Droidian с добавленными adaptation-пакетами
+            - boot-tab.img: Samsung-совместимый boot-образ
+            - dtbo-tab.img: dtbo с исправленной ориентацией тачпада Book Cover
+          files: |
+            rootfs-raw.img
+            boot-tab.img
+            dtbo-tab.img
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
